@@ -1,0 +1,169 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import plotly.express as px
+import numpy as np
+import warnings
+warnings.filterwarnings('ignore')
+
+# Set non-interactive backend for matplotlib
+plt.ioff()
+import matplotlib
+matplotlib.use('Agg')
+
+# Load the dataset
+df_raw = pd.read_csv(r"C:\Users\BalaGomathi\Desktop\GUVI\cleaned_agri_data.csv")
+
+# Convert wide format to long format
+# Identify crop names from column structure
+crops = {
+    'Rice': ['RICE AREA (1000 ha)', 'RICE PRODUCTION (1000 tons)', 'RICE YIELD (Kg per ha)'],
+    'Wheat': ['WHEAT AREA (1000 ha)', 'WHEAT PRODUCTION (1000 tons)', 'WHEAT YIELD (Kg per ha)'],
+    'Maize': ['MAIZE AREA (1000 ha)', 'MAIZE PRODUCTION (1000 tons)', 'MAIZE YIELD (Kg per ha)'],
+    'Cotton': ['COTTON AREA (1000 ha)', 'COTTON PRODUCTION (1000 tons)', 'COTTON YIELD (Kg per ha)'],
+    'Groundnut': ['GROUNDNUT AREA (1000 ha)', 'GROUNDNUT PRODUCTION (1000 tons)', 'GROUNDNUT YIELD (Kg per ha)'],
+    'Sugarcane': ['SUGARCANE AREA (1000 ha)', 'SUGARCANE PRODUCTION (1000 tons)', 'SUGARCANE YIELD (Kg per ha)'],
+    'Soybean': ['SOYABEAN AREA (1000 ha)', 'SOYABEAN PRODUCTION (1000 tons)', 'SOYABEAN YIELD (Kg per ha)'],
+    'Sunflower': ['SUNFLOWER AREA (1000 ha)', 'SUNFLOWER PRODUCTION (1000 tons)', 'SUNFLOWER YIELD (Kg per ha)'],
+    'Sesamum': ['SESAMUM AREA (1000 ha)', 'SESAMUM PRODUCTION (1000 tons)', 'SESAMUM YIELD (Kg per ha)'],
+}
+
+# Create long format dataframe
+data_list = []
+for crop, cols in crops.items():
+    if all(c in df_raw.columns for c in cols):
+        temp = df_raw[['Dist Code', 'Year', 'State Code', 'State Name', 'Dist Name'] + cols].copy()
+        temp.columns = ['Dist Code', 'Year', 'State Code', 'State_Name', 'District_Name', 'Area', 'Production', 'Yield']
+        temp['Crop'] = crop
+        temp['Crop_Year'] = temp['Year']
+        data_list.append(temp)
+
+df = pd.concat(data_list, ignore_index=True)
+df = df[['Crop_Year', 'State_Name', 'District_Name', 'Crop', 'Area', 'Production', 'Yield']]
+df = df.dropna(subset=['Production', 'Area'])
+df = df[(df['Area'] > 0) & (df['Production'] > 0)]
+
+# Your original plots
+# Top 7 Rice Producing States (Bar)
+rice_df = df[df['Crop'] == 'Rice']
+rice_prod = rice_df.groupby('State_Name')['Production'].sum().nlargest(7)
+rice_prod.plot(kind='bar', color='skyblue')
+plt.title('Top 7 Rice Producing States')
+plt.ylabel('Production (tons)')
+plt.xlabel('State')
+plt.xticks(rotation=45)
+plt.savefig('top7_rice_states.png')
+plt.close()
+
+# Top 5 Wheat Producing States (Bar) and % (Pie)
+wheat_df = df[df['Crop'] == 'Wheat']
+wheat_prod = wheat_df.groupby('State_Name')['Production'].sum().nlargest(5)
+wheat_prod.plot(kind='bar', color='green')
+plt.title('Top 5 Wheat Producing States')
+plt.ylabel('Production (tons)')
+plt.xlabel('State')
+plt.xticks(rotation=45)
+plt.savefig('top5_wheat_states_bar.png')
+plt.close()
+
+fig = px.pie(values=wheat_prod.values, names=wheat_prod.index, title='Top 5 Wheat Production Percentage')
+fig.write_html("temp_fig.html")
+
+# Additional requested EDA queries
+
+# 1. Year-wise Trend of Rice Production Across Top 3 States (Line Plot)
+top3_rice_states = rice_prod.index[:3]
+rice_yearly = rice_df[rice_df['State_Name'].isin(top3_rice_states)].groupby(['Crop_Year', 'State_Name'])['Production'].sum().unstack()
+rice_yearly.plot(kind='line', marker='o')
+plt.title('Year-wise Rice Production Trend (Top 3 States)')
+plt.ylabel('Production (tons)')
+plt.xlabel('Year')
+plt.legend(title='State')
+plt.savefig('rice_yearly_top3.png')
+plt.close()
+
+# 2. Top 5 Districts by Wheat Yield Increase Over the Last 5 Years
+# Assuming data sorted by year; get recent years
+recent_years = wheat_df['Crop_Year'].unique()[-5:]
+wheat_recent = wheat_df[wheat_df['Crop_Year'].isin(recent_years)]
+wheat_district_yearly = wheat_recent.groupby(['District_Name', 'Crop_Year'])['Production'].sum().unstack()
+growth = wheat_district_yearly.pct_change(axis=1).sum(axis=1).nlargest(5)  # Total growth rate over period
+growth.plot(kind='bar', color='orange')
+plt.title('Top 5 Districts by Wheat Production Growth (Last 5 Years)')
+plt.ylabel('Growth Rate')
+plt.savefig('wheat_district_growth.png')
+plt.close()
+
+# 3. States with Highest Growth in Oilseed Production (5-Year Growth Rate)
+oilseeds = ['Groundnut', 'Soybean', 'Sunflower', 'Rapeseed', 'Mustard', 'Sesamum']  # Common oilseeds
+oilseed_df = df[df['Crop'].isin(oilseeds)]
+oilseed_growth = oilseed_df.groupby(['State_Name', 'Crop_Year'])['Production'].sum().unstack().pct_change(axis=1).mean(axis=1).nlargest(5)
+oilseed_growth.plot(kind='bar')
+plt.title('Top 5 States by Oilseed Production Growth Rate')
+plt.savefig('oilseed_growth_states.png')
+plt.close()
+
+# 4. District-wise Correlation Between Area and Production for Major Crops (Rice, Wheat, Maize)
+major_crops = ['Rice', 'Wheat', 'Maize']
+for crop in major_crops:
+    crop_df = df[df['Crop'] == crop]
+    corr = crop_df.groupby('District_Name')[['Area', 'Production']].corr().unstack().iloc[:,1]  # Correlation per district
+    top_corr = corr.nlargest(10)
+    top_corr.plot(kind='bar', title=f'Top 10 Districts: Area vs Production Correlation ({crop})')
+    plt.ylabel('Correlation Coefficient')
+    plt.savefig(f'corr_{crop.lower()}.png')
+    plt.close()
+
+# 5. Yearly Production Growth of Cotton in Top 5 Cotton Producing States
+cotton_df = df[df['Crop'] == 'Cotton']
+top5_cotton_states = cotton_df.groupby('State_Name')['Production'].sum().nlargest(5).index
+cotton_yearly = cotton_df[cotton_df['State_Name'].isin(top5_cotton_states)].groupby(['Crop_Year', 'State_Name'])['Production'].sum().unstack()
+cotton_yearly.pct_change().plot(kind='line')
+plt.title('Yearly Growth Rate of Cotton Production (Top 5 States)')
+plt.savefig('cotton_growth.png')
+plt.close()
+
+# 6. Districts with Highest Groundnut Production in 2017
+groundnut_2017 = df[(df['Crop'] == 'Groundnut') & (df['Crop_Year'] == 2017)].groupby('District_Name')['Production'].sum().nlargest(10)
+groundnut_2017.plot(kind='bar')
+plt.title('Top Districts for Groundnut Production (2017)')
+plt.savefig('groundnut_2017.png')
+plt.close()
+
+# 7. Annual Average Maize Yield Across All States (Yield = Production / Area)
+maize_df = df[df['Crop'] == 'Maize'].copy()
+maize_df['Yield'] = maize_df['Production'] / maize_df['Area']
+maize_yield = maize_df.groupby('State_Name')['Yield'].mean().sort_values(ascending=False)
+maize_yield.plot(kind='bar')
+plt.title('Average Maize Yield by State')
+plt.savefig('maize_yield_states.png')
+plt.close()
+
+# 8. Total Area Cultivated for Oilseeds in Each State
+oilseed_area = oilseed_df.groupby('State_Name')['Area'].sum().sort_values(ascending=False)
+oilseed_area.plot(kind='bar')
+plt.title('Total Area for Oilseeds by State')
+plt.savefig('oilseed_area.png')
+plt.close()
+
+# 9. Districts with Highest Rice Yield
+rice_df['Yield'] = rice_df['Production'] / rice_df['Area']
+top_rice_yield_districts = rice_df.groupby('District_Name')['Yield'].mean().nlargest(10)
+top_rice_yield_districts.plot(kind='bar', color='lightblue')
+plt.title('Top 10 Districts by Rice Yield')
+plt.savefig('top_rice_yield_districts.png')
+plt.close()
+
+# 10. Compare Production of Wheat and Rice for Top 5 States Over Years (assuming recent 10 years)
+recent_10_years = df['Crop_Year'].unique()[-10:]
+compare_df = df[(df['Crop'].isin(['Rice', 'Wheat'])) & (df['Crop_Year'].isin(recent_10_years))]
+top5_states = list(rice_prod.index[:5]) + list(wheat_prod.index[:5])
+top5_states = list(set(top5_states))
+compare_df = compare_df[compare_df['State_Name'].isin(top5_states)]
+if len(compare_df) > 0:
+    pivot = compare_df.pivot_table(index='Crop_Year', columns=['State_Name', 'Crop'], values='Production')
+    pivot.plot(kind='line', figsize=(12, 6))
+    plt.title('Rice vs Wheat Production (Top States, Last 10 Years)')
+    plt.savefig('rice_vs_wheat_compare.png')
+    plt.close()
+
